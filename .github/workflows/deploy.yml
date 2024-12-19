@@ -1,0 +1,123 @@
+name: Deploy Cron Job to EC2
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Specify the Node.js version your cron job requires
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build project (if applicable)
+        run: npm run build # Skip this if your cron job doesn't need to be built
+
+      - name: Deploy to EC2 (Cron Job)
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+          NODE_ENV: ${{ secrets.NODE_ENV }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_DATABASE: ${{ secrets.DB_DATABASE }}
+        run: |
+          # Create SSH private key
+          echo "$SSH_PRIVATE_KEY" > private_key.pem
+          chmod 600 private_key.pem
+          
+          # Sync the cron job files to the EC2 instance
+          rsync -avz -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" . $USER@$HOST:/home/$USER/cron-job-deploy
+          
+          # Connect to the EC2 instance and set up the cron job
+          ssh -i private_key.pem -o StrictHostKeyChecking=no $USER@$HOST << EOF
+            cd /home/$USER/cron-job-deploy
+            
+            # Create or update .env file with environment variables
+            echo "NODE_ENV=${NODE_ENV}" > .env
+            echo "DB_HOST=${DB_HOST}" >> .env
+            echo "DB_PORT=${DB_PORT}" >> .env
+            echo "DB_USERNAME=${DB_USERNAME}" >> .env
+            echo "DB_PASSWORD=${DB_PASSWORD}" >> .env
+            echo "DB_DATABASE=${DB_DATABASE}" >> .env
+            cat .env # Verify the content of the .env file
+            
+            # Install production dependencies
+            npm install --production
+            
+            # Start or restart the cron job using PM2
+            pm2 restart cron-job || pm2 start dist/index.js --name cron-job
+          EOF
+  deploy-test:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Specify the Node.js version your cron job requires
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build project (if applicable)
+        run: npm run build # Skip this if your cron job doesn't need to be built
+
+      - name: Deploy to EC2 (Cron Job)
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_TEST_SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.EC2_TEST_HOST }}
+          USER: ${{ secrets.EC2_TEST_USER }}
+          NODE_ENV: ${{ secrets.NODE_ENV }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_DATABASE: ${{ secrets.DB_TEST_DATABASE }}
+        run: |
+          # Create SSH private key
+          echo "$SSH_PRIVATE_KEY" > private_key.pem
+          chmod 600 private_key.pem
+          
+          # Sync the cron job files to the EC2 instance
+          rsync -avz -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" . $USER@$HOST:/home/$USER/cron-job-deploy
+          
+          # Connect to the EC2 instance and set up the cron job
+          ssh -i private_key.pem -o StrictHostKeyChecking=no $USER@$HOST << EOF
+            cd /home/$USER/cron-job-deploy
+            
+            # Create or update .env file with environment variables
+            echo "NODE_ENV=${NODE_ENV}" > .env
+            echo "DB_HOST=${DB_HOST}" >> .env
+            echo "DB_PORT=${DB_PORT}" >> .env
+            echo "DB_USERNAME=${DB_USERNAME}" >> .env
+            echo "DB_PASSWORD=${DB_PASSWORD}" >> .env
+            echo "DB_DATABASE=${DB_DATABASE}" >> .env
+            cat .env # Verify the content of the .env file
+            
+            # Install production dependencies
+            npm install --production
+            
+            # Start or restart the cron job using PM2
+            pm2 restart cron-job || pm2 start dist/index.js --name cron-job
+          EOF
